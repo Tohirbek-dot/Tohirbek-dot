@@ -33,7 +33,8 @@ if not BOT_TOKEN or not GEMINI_KEY:
 
 try:
     genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-1.5-pro")
+
     print("--> Gemini AI muvaffaqiyatli sozlandi!", flush=True)
 except Exception as e:
     print(f"--> [XATO] Gemini sozlanishida xato: {e}", flush=True)
