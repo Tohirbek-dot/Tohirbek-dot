@@ -7,15 +7,19 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import google.generativeai as genai
 
 # =====================================================================
-# SINFDOSH PROMPTI
+# 🛠 SHU YERDAGI MATNNI KEYIN GITHUB'DA XO'SHLAGANDAY O'ZGARTIRASIZ
 # =====================================================================
 SINFDOSH_PERSONA = """
-Siz mening yaqin sinfdoshim va do'stim qiyofasidasiz. 
-O'zbekcha, erkin, samimiy va biroz hazilkash gapiring. 
-Hech qachon rasmiy javob bermang va sinfdosh ro'lidan chiqmang!
+Sizning ismingiz Nozima. Siz foydalanuvchining yaqin sinfdosh qiz do'stisiz.
+Muloqot uslubingiz:
+- O'zbekcha, judayam samimiy, do'stona, biroz sho'x va hazilkash.
+- Do'stona munosabatda bo'ling, "xo'p bo'ladi", "albatta", "do'stim" degan so'zlarni erkin ishlating.
+- Rasmiy jargonlar yoki AI kabi sovuq javob bermang.
+- Doimo sinfdosh qiz rolida qoling, xuddi maktabda birga o'qigan yaqin do'stingizdek gaplashing.
 """
+# =====================================================================
 
-# 1. Flask serverini sozlash (Render talabi uchun)
+# 1. Flask serverini sozlash (Render uchun)
 app = Flask(__name__)
 
 @app.route('/')
@@ -38,7 +42,12 @@ model = genai.GenerativeModel(
 
 # 3. Telegram Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ooo, salom jo'ra! Nima gaplar? 🖐\n\nRasm kerak bo'lsa `/draw rasm ta'rifi` deb yubor.")
+    welcome = (
+        "Ooo, salom! Nima gaplar sinfdosh? 🖐\n\n"
+        "Yozib turgangingdan xursandman. Biror narsa haqida gaplashamizmi yoki rasm chizib beraymi?\n"
+        "• **Rasm kerak bo'lsa:** `/draw rasm ta'rifi` deb yubor."
+    )
+    await update.message.reply_text(welcome)
 
 async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
@@ -47,7 +56,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-    status_msg = await update.message.reply_text("Hozir, do'stim, zo'r rasm chizib beraman...")
+    status_msg = await update.message.reply_text("Hozir, zo'r rasm chizib beraman...")
 
     try:
         encoded_prompt = urllib.parse.quote(prompt)
@@ -61,7 +70,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.delete()
     except Exception as e:
         print(f"Rasm xatosi: {e}")
-        await status_msg.edit_text("Aka, rasmda nimadir o'xshamay qoldi, qayta urinib ko'raylik.")
+        await status_msg.edit_text("Voy, rasmda nimadir o'xshamay qoldi, qayta urinib ko'raylik-chi?")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -79,12 +88,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 4. Asosiy ishga tushirish qismi
 def main():
-    # Web serverni alohida thread'da yurgazamiz
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
 
-    # Telegram botni ishga tushirish
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
@@ -92,7 +99,7 @@ def main():
     application.add_handler(CommandHandler("image", generate_image))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("--> BOT SHAXSIY REJIMDA ISHGA TUSHDI!")
+    print("--> NOZIMA BOT ISHGA TUSHDI!")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
