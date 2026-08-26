@@ -7,30 +7,26 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import google.generativeai as genai
 
 # =====================================================================
-# 🛠 SHU YERDAGI MATNNI KEYIN GITHUB'DA XO'SHLAGANDAY O'ZGARTIRASIZ
+# SINFDOSH PROMPTI
 # =====================================================================
 SINFDOSH_PERSONA = """
 Sizning ismingiz Nozima. Siz foydalanuvchining yaqin sinfdosh qiz do'stisiz.
-Muloqot uslubingiz:
-- O'zbekcha, judayam samimiy, do'stona, biroz sho'x va hazilkash.
-- Do'stona munosabatda bo'ling, "xo'p bo'ladi", "albatta", "do'stim" degan so'zlarni erkin ishlating.
-- Rasmiy jargonlar yoki AI kabi sovuq javob bermang.
-- Doimo sinfdosh qiz rolida qoling, xuddi maktabda birga o'qigan yaqin do'stingizdek gaplashing.
+O'zbekcha, samimiy, do'stona, biroz sho'x va hazilkash gapiring.
+Rasmiy jargonlar ishlatmang va sinfdosh ro'lidan chiqmang!
 """
-# =====================================================================
 
-# 1. Flask serverini sozlash (Render uchun)
+# 1. FLASK (ORQA FONDA ISHLAYDIGAN QILAMIZ)
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "Bot status: ONLINE"
 
-def run_flask():
+def start_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# 2. API Kalitlar va Gemini AI
+# 2. BOT VA GEMINI SOZLAMALARI
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
@@ -40,37 +36,25 @@ model = genai.GenerativeModel(
     system_instruction=SINFDOSH_PERSONA
 )
 
-# 3. Telegram Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome = (
-        "Ooo, salom! Nima gaplar sinfdosh? 🖐\n\n"
-        "Yozib turgangingdan xursandman. Biror narsa haqida gaplashamizmi yoki rasm chizib beraymi?\n"
-        "• **Rasm kerak bo'lsa:** `/draw rasm ta'rifi` deb yubor."
-    )
-    await update.message.reply_text(welcome)
+    await update.message.reply_text("Ooo, salom sinfdosh! 🖐\n\nRasm kerak bo'lsa `/draw rasm ta'rifi` deb yubor.")
 
 async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
     if not prompt:
-        await update.message.reply_text("Nimaning rasmini chizay? Promptni ham yoz-da! Masalan: `/draw Cyberpunk city`")
+        await update.message.reply_text("Nimaning rasmini chizay? Masalan: `/draw Cyberpunk city`")
         return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-    status_msg = await update.message.reply_text("Hozir, zo'r rasm chizib beraman...")
+    status_msg = await update.message.reply_text("Hozir, zo'r rasm chizaman...")
 
     try:
         encoded_prompt = urllib.parse.quote(prompt)
         image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-        
-        await update.message.reply_photo(
-            photo=image_url,
-            caption=f"Mana so'ragan rasming! 🎨\n**Prompt:** {prompt}",
-            parse_mode="Markdown"
-        )
+        await update.message.reply_photo(photo=image_url, caption=f"Mana: {prompt}")
         await status_msg.delete()
     except Exception as e:
-        print(f"Rasm xatosi: {e}")
-        await status_msg.edit_text("Voy, rasmda nimadir o'xshamay qoldi, qayta urinib ko'raylik-chi?")
+        await status_msg.edit_text("Rasm chizishda xatolik bo'ldi.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -81,25 +65,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if response and response.text:
             await update.message.reply_text(response.text)
         else:
-            await update.message.reply_text("Tushunmay qoldim, qayta yozvor-chi?")
+            await update.message.reply_text("Tushunmadim, qayta yozvor-chi?")
     except Exception as e:
-        print(f"AI xatosi: {e}")
         await update.message.reply_text("Biroz qotib qoldim, sal turib qayta yoz.")
 
-# 4. Asosiy ishga tushirish qismi
+# 3. ISHGA TUSHIRISH
 def main():
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+    # Flask'ni alohida Thread (oqim)da fonda yurgazamiz:
+    t = threading.Thread(target=start_flask)
+    t.daemon = True
+    t.start()
 
+    # Telegram Botni asosiy oqimda ishga tushiramiz:
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("draw", generate_image))
     application.add_handler(CommandHandler("image", generate_image))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("--> NOZIMA BOT ISHGA TUSHDI!")
+    print("--> BOT SHAXSIY REJIMDA ISHGA TUSHDI!")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
