@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import google.generativeai as genai
 
 # =====================================================================
-# SINFDOSH PROMPTI
+# SINFDOSH PROMPTI (Xohlaganingizcha tahrirlashingiz mumkin)
 # =====================================================================
 SINFDOSH_PERSONA = """
 Sizning ismingiz Nozima. Siz foydalanuvchining yaqin sinfdosh qiz do'stisiz.
@@ -56,6 +56,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text("Rasm chizishda xatolik bo'ldi.")
 
+# YANGILANGAN HANDLE_MESSAGE (Xatoni Telegram'da ko'rsatadi)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
@@ -65,9 +66,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if response and response.text:
             await update.message.reply_text(response.text)
         else:
-            await update.message.reply_text("Tushunmadim, qayta yozvor-chi?")
+            await update.message.reply_text("Javob bo'sh qaytdi, qaytadan yozib ko'r-chi?")
     except Exception as e:
-        await update.message.reply_text("Biroz qotib qoldim, sal turib qayta yoz.")
+        print(f"AI Xatosi: {e}")
+        await update.message.reply_text(f"Voy, javob berishda xatolik bo'ldi: {e}")
 
 # 3. ISHGA TUSHIRISH
 def main():
