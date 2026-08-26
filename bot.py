@@ -1,4 +1,5 @@
 import os
+import threading
 import urllib.parse
 from flask import Flask
 from telegram import Update
@@ -6,7 +7,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import google.generativeai as genai
 
 # =====================================================================
-# SINFDOSH PROMPTI (Xohlaganingizcha tahrirlang)
+# SINFDOSH PROMPTI
 # =====================================================================
 SINFDOSH_PERSONA = """
 Siz mening yaqin sinfdoshim va do'stim qiyofasidasiz. 
@@ -14,13 +15,18 @@ O'zbekcha, erkin, samimiy va biroz hazilkash gapiring.
 Hech qachon rasmiy javob bermang va sinfdosh ro'lidan chiqmang!
 """
 
-# Flask Web App (Render porti uchun)
+# 1. Flask serverini sozlash (Render talabi uchun)
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "Bot status: ONLINE"
 
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
+
+# 2. API Kalitlar va Gemini AI
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
@@ -30,6 +36,7 @@ model = genai.GenerativeModel(
     system_instruction=SINFDOSH_PERSONA
 )
 
+# 3. Telegram Bot Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Ooo, salom jo'ra! Nima gaplar? 🖐\n\nRasm kerak bo'lsa `/draw rasm ta'rifi` deb yubor.")
 
@@ -53,6 +60,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await status_msg.delete()
     except Exception as e:
+        print(f"Rasm xatosi: {e}")
         await status_msg.edit_text("Aka, rasmda nimadir o'xshamay qoldi, qayta urinib ko'raylik.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -66,9 +74,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("Tushunmay qoldim, qayta yozvor-chi?")
     except Exception as e:
+        print(f"AI xatosi: {e}")
         await update.message.reply_text("Biroz qotib qoldim, sal turib qayta yoz.")
 
+# 4. Asosiy ishga tushirish qismi
 def main():
+    # Web serverni alohida thread'da yurgazamiz
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Telegram botni ishga tushirish
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     application.add_handler(CommandHandler("start", start))
@@ -76,7 +92,7 @@ def main():
     application.add_handler(CommandHandler("image", generate_image))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("--> BOT TAYYOR!")
+    print("--> BOT SHAXSIY REJIMDA ISHGA TUSHDI!")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
