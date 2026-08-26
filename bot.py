@@ -31,19 +31,28 @@ TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 
 def generate_ai_response(prompt_text):
     try:
-        full_prompt = f"{SINFDOSH_PERSONA}\n\nFoydalanuvchi: {prompt_text}\nNozima:"
+        # Prompt va xarakterni aniq ajratib yuboramiz
+        full_prompt = f"System: {SINFDOSH_PERSONA}\nUser: {prompt_text}\nNozima:"
         encoded_prompt = urllib.parse.quote(full_prompt)
-        url = f"https://text.pollinations.ai/{encoded_prompt}"
         
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=15) as response:
+        # Sekinlashib qolmasligi uchun modelni aniq ko'rsatamiz (openai modeli o'rnida)
+        url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&cache=true"
+        
+        req = urllib.request.Request(
+            url, 
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        )
+        # Timeout vaqtini oshiramiz (30 soniya)
+        with urllib.request.urlopen(req, timeout=30) as response:
             res_text = response.read().decode('utf-8')
-            if res_text:
+            if res_text and len(res_text.strip()) > 0:
                 return res_text.strip()
     except Exception as e:
         print(f"AI ulanish xatosi: {e}")
     
-    return "Voy, ozgina charchab qolibman, hozirgina fikrim chalg'idi. Qaytadan yoz-chi sinfdosh! 😊"
+    return "Hozir internetim biroz qotib qoldi, yana bir marta yozvor-chi? 😅"
 
 # 3. TUGMALAR SOZLAMASI
 main_keyboard = ReplyKeyboardMarkup(
