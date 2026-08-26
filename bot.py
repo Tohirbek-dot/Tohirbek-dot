@@ -2,12 +2,12 @@ import os
 import threading
 import urllib.parse
 from flask import Flask
-from telegram import Update
+from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import google.generativeai as genai
 
 # =====================================================================
-# SINFDOSH PROMPTI (Xohlaganingizcha tahrirlashingiz mumkin)
+# SINFDOSH PROMPTI
 # =====================================================================
 SINFDOSH_PERSONA = """
 Sizning ismingiz Nozima. Siz foydalanuvchining yaqin sinfdosh qiz do'stisiz.
@@ -15,7 +15,7 @@ O'zbekcha, samimiy, do'stona, biroz sho'x va hazilkash gapiring.
 Rasmiy jargonlar ishlatmang va sinfdosh ro'lidan chiqmang!
 """
 
-# 1. FLASK (ORQA FONDA ISHLAYDIGAN QILAMIZ)
+# 1. FLASK (Render uchun orqa fonda)
 app = Flask(__name__)
 
 @app.route('/')
@@ -32,12 +32,29 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_KEY)
 model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
+    model_name="gemini-pro",
     system_instruction=SINFDOSH_PERSONA
 )
 
+# 3. TUGMALAR SOTIROVI (Keyboard)
+main_keyboard = ReplyKeyboardMarkup(
+    [["🎨 Rasm chizish"]],
+    resize_keyboard=True
+)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ooo, salom sinfdosh! 🖐\n\nRasm kerak bo'lsa `/draw rasm ta'rifi` deb yubor.")
+    # Menyuda /draw buyrug'ini ko'rsatish
+    await context.bot.set_my_commands([
+        BotCommand("start", "Botni qayta ishga tushirish"),
+        BotCommand("draw", "Rasm chizish: /draw rasm ta'rifi")
+    ])
+    
+    welcome_text = (
+        "Ooo, salom sinfdosh! 🖐\n\n"
+        "Men bilan bemalol gaplashishing mumkin. Rasm chizdirish uchun pastdagi **'🎨 Rasm chizish'** "
+        "tugmasini bos yoki `/draw matn` deb yoz!"
+    )
+    await update.message.reply_text(welcome_text, reply_markup=main_keyboard)
 
 async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
@@ -51,16 +68,29 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         encoded_prompt = urllib.parse.quote(prompt)
         image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-        await update.message.reply_photo(photo=image_url, caption=f"Mana: {prompt}")
+        await update.message.reply_photo(photo=image_url, caption=f"Mana so'ragan rasming: {prompt}")
         await status_msg.delete()
     except Exception as e:
         await status_msg.edit_text("Rasm chizishda xatolik bo'ldi.")
 
-# YANGILANGAN HANDLE_MESSAGE (Xatoni Telegram'da ko'rsatadi)
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
+
+    # Agar foydalanuvchi "🎨 Rasm chizish" tugmasini bossa
+    if user_text == "🎨 Rasm chizish":
+        context.user_data['waiting_for_photo'] = True
+        await update.message.reply_text("Nimaning rasmini chizib beray? Promptni yozib yubor (Masalan: *Kosmosdagi tayyora*):", parse_mode="Markdown")
+        return
+
+    # Agar foydalanuvchi avval tugmani bosib, endi rasm matnini yuborgan bo'lsa
+    if context.user_data.get('waiting_for_photo'):
+        context.user_data['waiting_for_photo'] = False
+        context.args = user_text.split()
+        await generate_image(update, context)
+        return
+
+    # Oddiy suhbat (Gemini AI)
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    
     try:
         response = model.generate_content(user_text)
         if response and response.text:
@@ -71,14 +101,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"AI Xatosi: {e}")
         await update.message.reply_text(f"Voy, javob berishda xatolik bo'ldi: {e}")
 
-# 3. ISHGA TUSHIRISH
+# 4. ISHGA TUSHIRISH
 def main():
-    # Flask'ni alohida Thread (oqim)da fonda yurgazamiz:
     t = threading.Thread(target=start_flask)
     t.daemon = True
     t.start()
 
-    # Telegram Botni asosiy oqimda ishga tushiramiz:
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("draw", generate_image))
