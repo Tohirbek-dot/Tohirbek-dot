@@ -31,19 +31,35 @@ TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel(
-    model_name="gemini-pro",
-    system_instruction=SINFDOSH_PERSONA
-)
 
-# 3. TUGMALAR SOTIROVI (Keyboard)
+# Bir nechta muqobil modellarni ko'rsatamiz
+MODELS_TO_TRY = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
+
+def generate_ai_response(prompt_text):
+    """
+    Agarda birorta model 404 xatosi bersa, avtomatik keyingi ishlaydigan modelga o'tadi.
+    """
+    for model_name in MODELS_TO_TRY:
+        try:
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=SINFDOSH_PERSONA
+            )
+            response = model.generate_content(prompt_text)
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            print(f"[{model_name}] modelida xatolik: {e}")
+            continue
+    return "Kechirasiz, hozircha sun'iy intellekt javob bera olmadi. Birozdan keyin urinib ko'ring."
+
+# 3. TUGMALAR SOTIROVI
 main_keyboard = ReplyKeyboardMarkup(
     [["🎨 Rasm chizish"]],
     resize_keyboard=True
 )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Menyuda /draw buyrug'ini ko'rsatish
     await context.bot.set_my_commands([
         BotCommand("start", "Botni qayta ishga tushirish"),
         BotCommand("draw", "Rasm chizish: /draw rasm ta'rifi")
@@ -52,7 +68,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "Ooo, salom sinfdosh! 🖐\n\n"
         "Men bilan bemalol gaplashishing mumkin. Rasm chizdirish uchun pastdagi **'🎨 Rasm chizish'** "
-        "tugmasini bos yoki `/draw matn` deb yoz!"
+        "tugmasini bos yoki `/draw matn` deb yubor!"
     )
     await update.message.reply_text(welcome_text, reply_markup=main_keyboard)
 
@@ -68,7 +84,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         encoded_prompt = urllib.parse.quote(prompt)
         image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
-        await update.message.reply_photo(photo=image_url, caption=f"Mana so'ragan rasming: {prompt}")
+        await update.message.reply_photo(photo=image_url, caption=f"Mana: {prompt}")
         await status_msg.delete()
     except Exception as e:
         await status_msg.edit_text("Rasm chizishda xatolik bo'ldi.")
@@ -76,30 +92,27 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
-    # Agar foydalanuvchi "🎨 Rasm chizish" tugmasini bossa
+    # "🎨 Rasm chizish" tugmasi bosilganda
     if user_text == "🎨 Rasm chizish":
         context.user_data['waiting_for_photo'] = True
         await update.message.reply_text("Nimaning rasmini chizib beray? Promptni yozib yubor (Masalan: *Kosmosdagi tayyora*):", parse_mode="Markdown")
         return
 
-    # Agar foydalanuvchi avval tugmani bosib, endi rasm matnini yuborgan bo'lsa
+    # Avval tugma bosilib, keyin rasm ta'rifi yuborilganda
     if context.user_data.get('waiting_for_photo'):
         context.user_data['waiting_for_photo'] = False
         context.args = user_text.split()
         await generate_image(update, context)
         return
 
-    # Oddiy suhbat (Gemini AI)
+    # AI bilan suhbat
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     try:
-        response = model.generate_content(user_text)
-        if response and response.text:
-            await update.message.reply_text(response.text)
-        else:
-            await update.message.reply_text("Javob bo'sh qaytdi, qaytadan yozib ko'r-chi?")
+        ai_reply = generate_ai_response(user_text)
+        await update.message.reply_text(ai_reply)
     except Exception as e:
-        print(f"AI Xatosi: {e}")
-        await update.message.reply_text(f"Voy, javob berishda xatolik bo'ldi: {e}")
+        print(f"Umumiy xato: {e}")
+        await update.message.reply_text("Biroz qotib qoldim, sal turib qayta yoz.")
 
 # 4. ISHGA TUSHIRISH
 def main():
