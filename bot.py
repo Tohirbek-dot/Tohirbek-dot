@@ -1,10 +1,10 @@
 import os
 import threading
 import urllib.parse
+import urllib.request
 from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import google.generativeai as genai
 
 # =====================================================================
 # SINFDOSH PROMPTI
@@ -26,54 +26,26 @@ def start_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# 2. BOT VA GEMINI SOZLAMALARI
+# 2. TELEGRAM TOKEN
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-
-genai.configure(api_key=GEMINI_KEY)
 
 def generate_ai_response(prompt_text):
-    """
-    API kalitingiz qaysi modellarni qo'llab-quvvatlashini avtomatik aniqlab, 
-    ishlaydigan model orqali javob qaytaradi.
-    """
     try:
-        # Avval akkauntingiz uchun ishlaydigan modellarni ro'yxatdan olamiz
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
+        full_prompt = f"{SINFDOSH_PERSONA}\n\nFoydalanuvchi: {prompt_text}\nNozima:"
+        encoded_prompt = urllib.parse.quote(full_prompt)
+        url = f"https://text.pollinations.ai/{encoded_prompt}"
         
-        # Agar ro'yxat bo'sh bo'lmasa, birinchisini ishlatamiz
-        if available_models:
-            # 'models/' prefiksini olib tashlab ishlatish ham mumkin yoki to'g'ridan-to'g'ri berish
-            model_name = available_models[0]
-            
-            # system_instruction'ni qo'llab-quvvatlaydigan model yaratamiz
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=SINFDOSH_PERSONA
-            )
-            response = model.generate_content(prompt_text)
-            if response and response.text:
-                return response.text
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=15) as response:
+            res_text = response.read().decode('utf-8')
+            if res_text:
+                return res_text.strip()
     except Exception as e:
-        print(f"Dinamik model topishda xatolik: {e}")
+        print(f"AI ulanish xatosi: {e}")
+    
+    return "Voy, ozgina charchab qolibman, hozirgina fikrim chalg'idi. Qaytadan yoz-chi sinfdosh! 😊"
 
-    # Agar yuqoridagilar ishlamasa, qo'lda sinab ko'radigan zaxira ro'yxat
-    fallback_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
-    for m_name in fallback_models:
-        try:
-            model = genai.GenerativeModel(model_name=m_name, system_instruction=SINFDOSH_PERSONA)
-            response = model.generate_content(prompt_text)
-            if response and response.text:
-                return response.text
-        except Exception:
-            continue
-
-    return "Kechirasiz, hozircha sun'iy intellekt bilan bog'lanib bo'lmadi."
-
-# 3. TUGMALAR SOTIROVI
+# 3. TUGMALAR SOZLAMASI
 main_keyboard = ReplyKeyboardMarkup(
     [["🎨 Rasm chizish"]],
     resize_keyboard=True
@@ -99,11 +71,15 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-    status_msg = await update.message.reply_text("Hozir, zo'r rasm chizaman...")
+    status_msg = await update.message.reply_text("Hozir, yuqori sifatli rasm chizaman, biroz kuting...")
 
     try:
-        encoded_prompt = urllib.parse.quote(prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true"
+        # Rasmlar tiniq va 4K formatda chiqishi uchun qo'shimcha parametrlar
+        enhanced_prompt = f"{prompt}, highly detailed, 4k, sharp focus, professional lighting"
+        encoded_prompt = urllib.parse.quote(enhanced_prompt)
+        
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&enhance=true"
+        
         await update.message.reply_photo(photo=image_url, caption=f"Mana: {prompt}")
         await status_msg.delete()
     except Exception as e:
@@ -124,12 +100,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    try:
-        ai_reply = generate_ai_response(user_text)
-        await update.message.reply_text(ai_reply)
-    except Exception as e:
-        print(f"Umumiy xato: {e}")
-        await update.message.reply_text("Biroz qotib qoldim, sal turib qayta yoz.")
+    ai_reply = generate_ai_response(user_text)
+    await update.message.reply_text(ai_reply)
 
 # 4. ISHGA TUSHIRISH
 def main():
