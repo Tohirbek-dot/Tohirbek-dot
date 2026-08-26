@@ -32,15 +32,24 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_KEY)
 
-# Bir nechta muqobil modellarni ko'rsatamiz
-MODELS_TO_TRY = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
-
 def generate_ai_response(prompt_text):
     """
-    Agarda birorta model 404 xatosi bersa, avtomatik keyingi ishlaydigan modelga o'tadi.
+    API kalitingiz qaysi modellarni qo'llab-quvvatlashini avtomatik aniqlab, 
+    ishlaydigan model orqali javob qaytaradi.
     """
-    for model_name in MODELS_TO_TRY:
-        try:
+    try:
+        # Avval akkauntingiz uchun ishlaydigan modellarni ro'yxatdan olamiz
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        # Agar ro'yxat bo'sh bo'lmasa, birinchisini ishlatamiz
+        if available_models:
+            # 'models/' prefiksini olib tashlab ishlatish ham mumkin yoki to'g'ridan-to'g'ri berish
+            model_name = available_models[0]
+            
+            # system_instruction'ni qo'llab-quvvatlaydigan model yaratamiz
             model = genai.GenerativeModel(
                 model_name=model_name,
                 system_instruction=SINFDOSH_PERSONA
@@ -48,10 +57,21 @@ def generate_ai_response(prompt_text):
             response = model.generate_content(prompt_text)
             if response and response.text:
                 return response.text
-        except Exception as e:
-            print(f"[{model_name}] modelida xatolik: {e}")
+    except Exception as e:
+        print(f"Dinamik model topishda xatolik: {e}")
+
+    # Agar yuqoridagilar ishlamasa, qo'lda sinab ko'radigan zaxira ro'yxat
+    fallback_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
+    for m_name in fallback_models:
+        try:
+            model = genai.GenerativeModel(model_name=m_name, system_instruction=SINFDOSH_PERSONA)
+            response = model.generate_content(prompt_text)
+            if response and response.text:
+                return response.text
+        except Exception:
             continue
-    return "Kechirasiz, hozircha sun'iy intellekt javob bera olmadi. Birozdan keyin urinib ko'ring."
+
+    return "Kechirasiz, hozircha sun'iy intellekt bilan bog'lanib bo'lmadi."
 
 # 3. TUGMALAR SOTIROVI
 main_keyboard = ReplyKeyboardMarkup(
@@ -92,20 +112,17 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
-    # "🎨 Rasm chizish" tugmasi bosilganda
     if user_text == "🎨 Rasm chizish":
         context.user_data['waiting_for_photo'] = True
         await update.message.reply_text("Nimaning rasmini chizib beray? Promptni yozib yubor (Masalan: *Kosmosdagi tayyora*):", parse_mode="Markdown")
         return
 
-    # Avval tugma bosilib, keyin rasm ta'rifi yuborilganda
     if context.user_data.get('waiting_for_photo'):
         context.user_data['waiting_for_photo'] = False
         context.args = user_text.split()
         await generate_image(update, context)
         return
 
-    # AI bilan suhbat
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     try:
         ai_reply = generate_ai_response(user_text)
