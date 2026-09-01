@@ -7,15 +7,17 @@ from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # =====================================================================
-# SINFDOSH PROMPTI
+# SINFDOSH NOZIMA PROMPTI (Erkin suhbat va ko'p qirrali yordamchi)
 # =====================================================================
 SINFDOSH_PERSONA = """
-Sizning ismingiz Nozima. Siz foydalanuvchining yaqin sinfdosh qiz do'stisiz.
-O'zbekcha, samimiy, do'stona, biroz sho'x va hazilkash gapiring.
-Rasmiy jargonlar ishlatmang va sinfdosh ro'lidan chiqmang!
+Sizning ismingiz Nozima. Siz foydalanuvchining yaqin, samimiy va sho'x sinfdosh qiz do'stisiz.
+- O'zbek tilida do'stona, samimiy va erkin gapiring.
+- Foydalanuvchi bilan har qanday mavzuda (kun tartibi, darslar, kayfiyat, hayotiy maslahatlar, ingliz tilida mashq qilish) suhbatlashing.
+- Rasmiy jargonlar ishlatmang, kitobiy gapirmang va sinfdosh ro'lidan chiqib ketmang.
+- Doim kayfiyatni ko'taruvchi va samimiy javoblar bering.
 """
 
-# 1. FLASK (Render uchun orqa fonda)
+# 1. FLASK (Render uxlab qolmasligi uchun)
 app = Flask(__name__)
 
 @app.route('/')
@@ -30,12 +32,13 @@ def start_flask():
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 
 def generate_ai_response(prompt_text):
+    """
+    Pollinations AI orqali har qanday mavzuda erkin va qotmaydigan suhbat
+    """
     try:
-        # Prompt va xarakterni aniq ajratib yuboramiz
         full_prompt = f"System: {SINFDOSH_PERSONA}\nUser: {prompt_text}\nNozima:"
         encoded_prompt = urllib.parse.quote(full_prompt)
         
-        # Sekinlashib qolmasligi uchun modelni aniq ko'rsatamiz (openai modeli o'rnida)
         url = f"https://text.pollinations.ai/{encoded_prompt}?model=openai&cache=true"
         
         req = urllib.request.Request(
@@ -44,7 +47,6 @@ def generate_ai_response(prompt_text):
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
         )
-        # Timeout vaqtini oshiramiz (30 soniya)
         with urllib.request.urlopen(req, timeout=30) as response:
             res_text = response.read().decode('utf-8')
             if res_text and len(res_text.strip()) > 0:
@@ -68,7 +70,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     welcome_text = (
         "Ooo, salom sinfdosh! 🖐\n\n"
-        "Men bilan bemalol gaplashishing mumkin. Rasm chizdirish uchun pastdagi **'🎨 Rasm chizish'** "
+        "Men bilan bemalol istalgan mavzuda gaplashishing mumkin! 😊\n"
+        "Rasm chizdirish uchun esa pastdagi **'🎨 Rasm chizish'** "
         "tugmasini bos yoki `/draw matn` deb yubor!"
     )
     await update.message.reply_text(welcome_text, reply_markup=main_keyboard)
@@ -76,38 +79,41 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
     if not prompt:
-        await update.message.reply_text("Nimaning rasmini chizay? Masalan: `/draw Cyberpunk city`")
+        await update.message.reply_text("Nimaning rasmini chizay? Masalan: `/draw Oy` yoki `/draw Koinotdagi mushuk`")
         return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-    status_msg = await update.message.reply_text("Hozir, yuqori sifatli rasm chizaman, biroz kuting...")
+    status_msg = await update.message.reply_text("Hozir, so'ragan rasmingni tiniq qilib chizaman, biroz kut...")
 
     try:
-        # Rasmlar tiniq va 4K formatda chiqishi uchun qo'shimcha parametrlar
-        enhanced_prompt = f"{prompt}, highly detailed, 4k, sharp focus, professional lighting"
+        # Promptni inglizcha sifat so'zlari bilan boyitish va FLUX modelidan foydalanish
+        enhanced_prompt = f"{prompt}, highly detailed, 4k photo, realistic, sharp focus, cinematic lighting"
         encoded_prompt = urllib.parse.quote(enhanced_prompt)
         
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&enhance=true"
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&nologo=true&enhance=true&model=flux"
         
-        await update.message.reply_photo(photo=image_url, caption=f"Mana: {prompt}")
+        await update.message.reply_photo(photo=image_url, caption=f"Mana so'ragan rasming: {prompt}")
         await status_msg.delete()
     except Exception as e:
-        await status_msg.edit_text("Rasm chizishda xatolik bo'ldi.")
+        await status_msg.edit_text("Rasm chizishda xatolik bo'ldi, qaytadan urinib ko'r-chi.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
+    # "🎨 Rasm chizish" tugmasi bosilganda
     if user_text == "🎨 Rasm chizish":
         context.user_data['waiting_for_photo'] = True
-        await update.message.reply_text("Nimaning rasmini chizib beray? Promptni yozib yubor (Masalan: *Kosmosdagi tayyora*):", parse_mode="Markdown")
+        await update.message.reply_text("Nimaning rasmini chizib beray? Yozib yubor (Masalan: *Oy*, *Dengiz bo'yidagi mashina*):", parse_mode="Markdown")
         return
 
+    # Avval tugma bosilib, keyin rasm ta'rifi kelganda
     if context.user_data.get('waiting_for_photo'):
         context.user_data['waiting_for_photo'] = False
         context.args = user_text.split()
         await generate_image(update, context)
         return
 
+    # Oddiy erkin suhbat
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     ai_reply = generate_ai_response(user_text)
     await update.message.reply_text(ai_reply)
