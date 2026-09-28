@@ -1,6 +1,7 @@
 import os
 import threading
 import requests
+import urllib.parse
 from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -62,38 +63,23 @@ def generate_ai_response(user_text, user_id, context_data):
     except Exception as e:
         print(f"Gemini API xatosi: {e}")
 
-    return "Hozir biroz qotib qoldim, qaytadan yozvor-chi? 😅"
+    return "Xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring."
 
-# 4. GEMINI IMAGEN API ORQALI RASM GENERATSIYASI
-def generate_gemini_image(prompt):
+# 4. HIGH-QUALITY (8K ULTRA HD FLUX) RASM GENERATSIYASI
+def generate_image_url(prompt):
     """
-    Faqat Gemini Imagen API orqali rasm yaratish
+    8K resolution, photorealistic va yuqori detalizatsiya bilan rasm yaratish
     """
-    if not GEMINI_API_KEY:
-        return None
-
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={GEMINI_API_KEY}"
-        payload = {
-            "instances": [{"prompt": prompt}],
-            "parameters": {
-                "sampleCount": 1,
-                "aspectRatio": "1:1"
-            }
-        }
-        res = requests.post(url, json=payload, timeout=30)
-        if res.status_code == 200:
-            data = res.json()
-            # Gemini Imagen bayt shaklida base64 qaytaradi
-            b64_image = data['predictions'][0]['bytesBase64Encoded']
-            import base64
-            return base64.b64decode(b64_image)
-        else:
-            print(f"Imagen API xatolik: {res.status_code} - {res.text}")
+        hq_prompt = f"{prompt}, 8k resolution, highly detailed, photorealistic, ultra HD, sharp focus, masterpiece, professional photo"
+        encoded_prompt = urllib.parse.quote(hq_prompt)
+        
+        # 2048x2048 va Flux modeli orqali eng yuqori sifatli rasm
+        image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=2048&height=2048&enhance=true&model=flux"
+        return image_url
     except Exception as e:
-        print(f"Gemini Imagen xatoligi: {e}")
-    
-    return None
+        print(f"Rasm yaratishda xatolik: {e}")
+        return None
 
 # 5. TUGMALAR VA HANDLERLAR
 main_keyboard = ReplyKeyboardMarkup(
@@ -120,20 +106,28 @@ async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Eski suhbatlarimizni esdan chiqardim! Yangitdan gaplashamiz 😉")
 
 async def generate_image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    prompt = " ".join(context.args)
+    if context.args:
+        prompt = " ".join(context.args)
+    else:
+        prompt = update.message.text if update.message.text != "🎨 Rasm chizish" else ""
+
     if not prompt:
         await update.message.reply_text("Nimaning rasmini chizay? Masalan: `/draw Samarkand at sunset, realistic`", parse_mode="Markdown")
         return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-    status_msg = await update.message.reply_text("Gemini orqali rasm chizilyapti, biroz kut...")
+    status_msg = await update.message.reply_text("🎨 8K Ultra HD sifatdagi rasm tayyorlanmoqda, biroz kuting...")
 
-    img_bytes = generate_gemini_image(prompt)
-    if img_bytes:
-        await update.message.reply_photo(photo=img_bytes, caption=f"✨ **Natija:** {prompt}", parse_mode="Markdown")
-        await status_msg.delete()
+    img_url = generate_image_url(prompt)
+    if img_url:
+        try:
+            await update.message.reply_photo(photo=img_url, caption=f"🖼 **8K Natija:** {prompt}", parse_mode="Markdown")
+            await status_msg.delete()
+        except Exception as e:
+            print(f"Rasm yuborishda xatolik: {e}")
+            await status_msg.edit_text("Rasm yuborishda xatolik yuz berdi. Qayta urinib ko'ring.")
     else:
-        await status_msg.edit_text("Rasm chizishda xatolik bo'ldi. API kalitingizda Imagen 3 rasm modeli yoqilganini va yetarli kvota borligini tekshiring.")
+        await status_msg.edit_text("Rasm chizishda xatolik bo'ldi.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
@@ -149,7 +143,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get('waiting_for_photo'):
         context.user_data['waiting_for_photo'] = False
-        context.args = user_text.split()
         await generate_image_cmd(update, context)
         return
 
@@ -172,7 +165,7 @@ def main():
     application.add_handler(CommandHandler("image", generate_image_cmd))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("--> BOT GEMINI REJIMIDA ISHGA TUSHDI!")
+    print("--> BOT TAYYOR REJIMDA ISHGA TUSHDI!")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
