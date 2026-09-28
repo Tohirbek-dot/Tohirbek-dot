@@ -1,184 +1,116 @@
 import os
+import logging
 import threading
-import requests
-import urllib.parse
 from flask import Flask
-from telegram import Update, ReplyKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.request import HTTPXRequest
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+from google import genai
+from google.genai import types
 
-# =====================================================================
-# SINFDOSH NOZIMA PROMPTI
-# =====================================================================
-SINFDOSH_PERSONA = """
-Sizning ismingiz Nozima. Siz foydalanuvchining yaqin, samimiy va sho'x sinfdosh qiz do'stisiz.
-- O'zbek tilida do'stona, samimiy, zamonaviy va erkin gapiring.
-- Foydalanuvchi bilan har qanday mavzuda (kun tartibi, darslar, kayfiyat, hayotiy maslahatlar, qiziqishlar) suhbatlashing.
-- Rasmiy jargonlar ishlatmang, kitobiy gapirmang va sinfdosh ro'lidan chiqib ketmang.
-- Doim kayfiyatni ko'taruvchi va samimiy javoblar bering.
-- Qisqa va londa, Telegram chatiga mos ravishda javob qaytaring.
-"""
+# Logging sozlamalari
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-# 1. FLASK (Render uxlab qolmasligi uchun)
+# Muhit o'zgaruvchilari (Environment Variables)
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+
+# 1. FLASK SERVER (Render portini ushlab turish uchun)
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot status: ONLINE", 200
+    return "Bot muvaffaqiyatli ishlamoqda!", 200
 
-def start_flask():
+def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# 2. ENVIRONMENT KALITLARI
-TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 
-# 3. GEMINI API ORQALI MATN GENERATSIYASI (CHAT UCHUN)
-def generate_ai_response(user_text, user_id, context_data):
-    if 'chat_history' not in context_data:
-        context_data['chat_history'] = []
+# 2. GEMINI CLIENT SOZLAMASI
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-    history = context_data['chat_history'][-6:] 
+def ask_gemini(user_text: str) -> str:
+    if not gemini_client:
+        return "Gemini API kaliti sozlanmagan."
     
-    if not GEMINI_API_KEY:
-        return "Gemini API kaliti topilmadi. Render'da GEMINI_API_KEY kiritilganini tekshiring."
-
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        
-        contents = [{"role": "user", "parts": [{"text": f"SYSTEM INSTRUCTION: {SINFDOSH_PERSONA}"}]}]
-        for msg in history:
-            contents.append({"role": msg['role'], "parts": [{"text": msg['text']}]})
-        contents.append({"role": "user", "parts": [{"text": user_text}]})
-
-        payload = {"contents": contents}
-        res = requests.post(url, json=payload, timeout=15)
-        if res.status_code == 200:
-            reply = res.json()['candidates'][0]['content']['parts'][0]['text']
-            context_data['chat_history'].append({'role': 'user', 'text': user_text})
-            context_data['chat_history'].append({'role': 'model', 'text': reply})
-            return reply
-        else:
-            print(f"Gemini API xatolik kodi: {res.status_code}, javob: {res.text}")
+        response = gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=user_text,
+            config=types.GenerateContentConfig(
+                temperature=0.7,
+            )
+        )
+        return response.text
     except Exception as e:
-        print(f"Gemini API xatosi: {e}")
-
-    return "Xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring."
-
-# 4. POLLINATIONS AI ORQALI RASM GENERATSIYASI (TO'G'RILANGAN)
-def generate_image_url(prompt):
-    try:
-        # Promptni yaxshilaymiz
-        hq_prompt = f"{prompt}, highly detailed, photorealistic, ultra HD, sharp focus, masterpiece"
-        encoded_prompt = urllib.parse.quote(hq_prompt)
-        
-        # O'lchamni 1024x1024 qilamiz (stabil va xatosiz ishlaydi)
-        image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&model=flux"
-        return image_url
-    except Exception as e:
-        print(f"Rasm yaratishda xatolik: {e}")
-        return None
+        logging.error(f"Gemini API xatoligi: {e}")
+        return "Kechirasiz, javob berishda xatolik yuz berdi."
 
 
-# 5. TUGMALAR VA HANDLERLAR
-main_keyboard = ReplyKeyboardMarkup(
-    [["🎨 Rasm chizish", "💬 Chatni tozalash"]],
-    resize_keyboard=True
-)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.set_my_commands([
-        BotCommand("start", "Botni qayta ishga tushirish"),
-        BotCommand("draw", "Rasm chizish: /draw rasm ta'rifi"),
-        BotCommand("clear", "Muloqot tarixini tozalash")
-    ])
-    
-    welcome_text = (
-        "Ooo, salom sinfdosh! 🖐\n\n"
-        "Men bilan bemalol istalgan mavzuda gaplashishing mumkin! 😊\n"
-        "Rasm chizdirish uchun **'🎨 Rasm chizish'** tugmasini bos yoki `/draw matn` deb yubor!"
+# 3. TELEGRAM BOT HANDLERLARI
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name
+    await update.message.reply_text(
+        f"Assalomu alaykum, {user_name}! Men sun'iy intellekt botiman. "
+        f"Menga savolingizni yuboring yoki rasm chizish uchun `/image tavsif` deb yozing."
     )
-    await update.message.reply_text(welcome_text, reply_markup=main_keyboard)
 
-async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['chat_history'] = []
-    await update.message.reply_text("Eski suhbatlarimizni esdan chiqardim! Yangitdan gaplashamiz 😉")
-
-async def generate_image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.args:
-        prompt = " ".join(context.args)
-    else:
-        prompt = update.message.text if update.message.text != "🎨 Rasm chizish" else ""
-
-    if not prompt:
-        await update.message.reply_text("Nimaning rasmini chizay? Masalan: `/draw Samarkand at sunset, realistic`", parse_mode="Markdown")
+async def image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Iltimos, rasm tavsifini kiriting. Masalan:\n`/image uzbekistan nature`", parse_mode="Markdown")
         return
 
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="upload_photo")
-    status_msg = await update.message.reply_text("🎨 8K Ultra HD sifatdagi rasm tayyorlanmoqda, biroz kuting...")
+    prompt = " ".join(context.args)
+    await update.message.reply_text("🎨 Rasm tayyorlanmoqda, kuting...")
 
-    img_url = generate_image_url(prompt)
-    if img_url:
-        try:
-            await update.message.reply_photo(photo=img_url, caption=f"🖼 **8K Natija:** {prompt}", parse_mode="Markdown")
-            await status_msg.delete()
-        except Exception as e:
-            print(f"Rasm yuborishda xatolik: {e}")
-            await status_msg.edit_text("Rasm yuborishda xatolik yuz berdi. Qayta urinib ko'ring.")
-    else:
-        await status_msg.edit_text("Rasm chizishda xatolik bo'ldi.")
+    # Pollinations AI orqali rasm URL yaratish
+    image_url = f"https://pollinations.ai/p/{prompt.replace(' ', '%20')}?width=1024&height=1024&seed=42"
+
+    try:
+        await update.message.reply_photo(photo=image_url, caption=f"🖼 Prompt: {prompt}")
+    except Exception as e:
+        logging.error(f"Rasm yuborishda xatolik: {e}")
+        await update.message.reply_text("Rasm yaratishda xatolik yuz berdi.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-
-    if user_text == "💬 Chatni tozalash":
-        await clear_history(update, context)
-        return
-
-    if user_text == "🎨 Rasm chizish":
-        context.user_data['waiting_for_photo'] = True
-        await update.message.reply_text("Nimaning rasmini chizib beray? Ta'rifini yozib yubor (Masalan: *Futuristic Tashkent city with flying cars*):", parse_mode="Markdown")
-        return
-
-    if context.user_data.get('waiting_for_photo'):
-        context.user_data['waiting_for_photo'] = False
-        await generate_image_cmd(update, context)
-        return
-
-    # Muloqot qismi (Gemini 1.5 Flash)
+    
+    # Telegram "typing..." statusini ko'rsatish
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    ai_reply = generate_ai_response(user_text, update.effective_user.id, context.user_data)
-    await update.message.reply_text(ai_reply)
+    
+    reply_text = ask_gemini(user_text)
+    await update.message.reply_text(reply_text)
 
-# 6. ISHGA TUSHIRISH
+
+# 4. ASOSIY ISHGA TUSHIRISH
 def main():
-    t = threading.Thread(target=start_flask)
-    t.daemon = True
-    t.start()
+    if not BOT_TOKEN:
+        logging.error("BOT_TOKEN topilmadi! Render Environment Variables qismini teshiring.")
+        return
 
-    # TimeOut xatoliklarining oldini olish uchun sozlangan HTTPX joyi
-    request_config = HTTPXRequest(
-        connect_timeout=30.0,
-        read_timeout=30.0,
-        write_timeout=30.0,
-        pool_timeout=30.0
-    )
+    # Flask serverni alohida thread'da ishga tushirish
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    logging.info("Flask veb-server ishga tushirildi.")
 
-    application = (
-        Application.builder()
-        .token(TELEGRAM_TOKEN)
-        .request(request_config)
-        .build()
-    )
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("clear", clear_history))
-    application.add_handler(CommandHandler("draw", generate_image_cmd))
-    application.add_handler(CommandHandler("image", generate_image_cmd))
+    # Telegram botni sozlash
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("image", image_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("--> BOT HYBRID REJIMDA ISHGA TUSHDI!")
+
+    # Botni polling rejimida ishga tushirish (drop_pending_updates=True eski konfliktlarni tozalaydi)
+    logging.info("Telegram Bot ishga tushmoqda...")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
