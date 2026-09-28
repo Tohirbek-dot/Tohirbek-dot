@@ -66,17 +66,20 @@ def generate_ai_response(user_text, user_id, context_data):
 
     return "Xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring."
 
-# 4. POLLINATIONS AI ORQALI 8K FLUX RASM GENERATSIYASI (KVOTASIZ VA BEPUL)
+# 4. POLLINATIONS AI ORQALI RASM GENERATSIYASI (TO'G'RILANGAN)
 def generate_image_url(prompt):
     try:
-        hq_prompt = f"{prompt}, 8k resolution, highly detailed, photorealistic, ultra HD, sharp focus, masterpiece, professional photo"
+        # Promptni yaxshilaymiz
+        hq_prompt = f"{prompt}, highly detailed, photorealistic, ultra HD, sharp focus, masterpiece"
         encoded_prompt = urllib.parse.quote(hq_prompt)
         
-        image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=2048&height=2048&enhance=true&model=flux"
+        # O'lchamni 1024x1024 qilamiz (stabil va xatosiz ishlaydi)
+        image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&model=flux"
         return image_url
     except Exception as e:
         print(f"Rasm yaratishda xatolik: {e}")
         return None
+
 
 # 5. TUGMALAR VA HANDLERLAR
 main_keyboard = ReplyKeyboardMarkup(
