@@ -5,6 +5,7 @@ import urllib.parse
 from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.request import HTTPXRequest
 
 # =====================================================================
 # SINFDOSH NOZIMA PROMPTI
@@ -23,7 +24,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot status: ONLINE"
+    return "Bot status: ONLINE", 200
 
 def start_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -33,7 +34,7 @@ def start_flask():
 TELEGRAM_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") 
 
-# 3. GEMINI API ORQALI MATN GENERATSIYASI
+# 3. GEMINI API ORQALI MATN GENERATSIYASI (CHAT UCHUN)
 def generate_ai_response(user_text, user_id, context_data):
     if 'chat_history' not in context_data:
         context_data['chat_history'] = []
@@ -41,7 +42,7 @@ def generate_ai_response(user_text, user_id, context_data):
     history = context_data['chat_history'][-6:] 
     
     if not GEMINI_API_KEY:
-        return "Gemini API kaliti kiritilmagan. Render'dagi Environment variables'ni tekshiring."
+        return "Gemini API kaliti topilmadi. Render'da GEMINI_API_KEY kiritilganini tekshiring."
 
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -65,16 +66,12 @@ def generate_ai_response(user_text, user_id, context_data):
 
     return "Xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring."
 
-# 4. HIGH-QUALITY (8K ULTRA HD FLUX) RASM GENERATSIYASI
+# 4. POLLINATIONS AI ORQALI 8K FLUX RASM GENERATSIYASI (KVOTASIZ VA BEPUL)
 def generate_image_url(prompt):
-    """
-    8K resolution, photorealistic va yuqori detalizatsiya bilan rasm yaratish
-    """
     try:
         hq_prompt = f"{prompt}, 8k resolution, highly detailed, photorealistic, ultra HD, sharp focus, masterpiece, professional photo"
         encoded_prompt = urllib.parse.quote(hq_prompt)
         
-        # 2048x2048 va Flux modeli orqali eng yuqori sifatli rasm
         image_url = f"https://pollinations.ai/p/{encoded_prompt}?width=2048&height=2048&enhance=true&model=flux"
         return image_url
     except Exception as e:
@@ -146,7 +143,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await generate_image_cmd(update, context)
         return
 
-    # Muloqot qismi
+    # Muloqot qismi (Gemini 1.5 Flash)
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     ai_reply = generate_ai_response(user_text, update.effective_user.id, context.user_data)
     await update.message.reply_text(ai_reply)
@@ -157,7 +154,20 @@ def main():
     t.daemon = True
     t.start()
 
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    # TimeOut xatoliklarining oldini olish uchun sozlangan HTTPX joyi
+    request_config = HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0
+    )
+
+    application = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .request(request_config)
+        .build()
+    )
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("clear", clear_history))
@@ -165,7 +175,7 @@ def main():
     application.add_handler(CommandHandler("image", generate_image_cmd))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("--> BOT TAYYOR REJIMDA ISHGA TUSHDI!")
+    print("--> BOT HYBRID REJIMDA ISHGA TUSHDI!")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
